@@ -22,17 +22,15 @@ def main(params):
     # the backup files are gzipped, and it's important to keep the correct extension
     # for pandas to be able to open the file
     if url.endswith('.csv.gz'):
-        csv_name = 'output.csv.gz'
+        csv_name = 'output.parquet.gz'
     else:
-        csv_name = 'output.csv'
+        csv_name = 'output.parquet'
 
     os.system(f"wget {url} -O {csv_name}")
 
     engine = create_engine(f'postgresql://{user}:{password}@{host}:{port}/{db}')
 
-    df_iter = pd.read_csv(csv_name, iterator=True, chunksize=100000)
-
-    df = next(df_iter)
+    df = pd.read_parquet(csv_name)
 
     df.tpep_pickup_datetime = pd.to_datetime(df.tpep_pickup_datetime)
     df.tpep_dropoff_datetime = pd.to_datetime(df.tpep_dropoff_datetime)
@@ -41,26 +39,20 @@ def main(params):
 
     df.to_sql(name=table_name, con=engine, if_exists='append')
 
+    try:
+        t_start = time()
+        df.tpep_pickup_datetime = pd.to_datetime(df.tpep_pickup_datetime)
+        df.tpep_dropoff_datetime = pd.to_datetime(df.tpep_dropoff_datetime)
 
-    while True: 
+        df.to_sql(name=table_name, con=engine, if_exists='append')
 
-        try:
-            t_start = time()
-            
-            df = next(df_iter)
+        t_end = time()
 
-            df.tpep_pickup_datetime = pd.to_datetime(df.tpep_pickup_datetime)
-            df.tpep_dropoff_datetime = pd.to_datetime(df.tpep_dropoff_datetime)
+        print('inserted another chunk, took %.3f second' % (t_end - t_start))
 
-            df.to_sql(name=table_name, con=engine, if_exists='append')
-
-            t_end = time()
-
-            print('inserted another chunk, took %.3f second' % (t_end - t_start))
-
-        except StopIteration:
-            print("Finished ingesting data into the postgres database")
-            break
+    except StopIteration:
+        print("Finished ingesting data into the postgres database")
+        return
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Ingest CSV data to Postgres')
